@@ -82,7 +82,7 @@ func main() {
 	}
 
 	// Route to handle image compression
-	app.Get("/api2/*", func(c *fiber.Ctx) error {
+	app.Get("/proxy/get/*", func(c *fiber.Ctx) error {
 		path := c.Params("*")
 		arr := strings.Split(path, "_")
 
