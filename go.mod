@@ -1,4 +1,4 @@
-module github.com/Kriwn/Go_Compresser.git
+module github.com/Kriwn/Go_Compressor.git
 
 go 1.22.6
 
