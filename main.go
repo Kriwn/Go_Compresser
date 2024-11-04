@@ -18,12 +18,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/disintegration/imaging"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/proxy"
 	"github.com/joho/godotenv"
 	"github.com/nfnt/resize"
-	"github.com/valyala/fasthttp"
 )
 
 func postCDN(c *fiber.Ctx, filename string) error {
@@ -156,66 +155,129 @@ func getFIle(c *fiber.Ctx, filename string, filetype string) error {
 			return c.Status(fiber.StatusInternalServerError).SendString("Failed to encode image: " + err.Error())
 		}
 		postCDN(c,outputFileName)
-		// os.Remove(outputFileName)
+		os.Remove(outputFileName)
 	}
 
 	return nil
 }
 
 
-// ForwardCDN fetches an image from the CDN, resizes it, and returns it as a PNG.
+
+
 func ForwardCDN(c *fiber.Ctx, name string, width uint, height uint, quality int) error {
-	// Perform a proxy forward to get the image from CDN
-	filename := strings.Split(name,".")
-	println(filename)
-	url := os.Getenv("CDN")
-	url = url + "/get"
-	err := proxy.Forward(url+name, &fasthttp.Client{
-		NoDefaultUserAgentHeader: true,
-		DisablePathNormalizing:   true,
-	})(c)
+	// Construct the URL to fetch the image from the CDN
+	url := os.Getenv("CDN") + "get/" + name
+	println(url)
 
+	// Create a buffer to hold the image data
+	var imgData bytes.Buffer
+
+	// Make a GET request to fetch the image
+	resp, err := http.Get(url)
 	if err != nil {
-		return c.Status(505).SendString("Failed to forward request")
+		return c.Status(http.StatusInternalServerError).SendString("Failed to fetch image from CDN")
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return c.Status(resp.StatusCode).SendString("Failed to retrieve image")
 	}
 
-	img, _, err := image.Decode(bytes.NewReader(c.Response().Body()))
+	// Read the image data into the buffer
+	_, err = imgData.ReadFrom(resp.Body)
 	if err != nil {
-		return c.Status(500).SendString("Failed to decode image")
+		return c.Status(http.StatusInternalServerError).SendString("Failed to read image data")
 	}
 
-	if (width > 0 && height > 0){
-		img = resize.Resize(width, height , img, resize.Lanczos3)
-	}
-
-	file, err := os.Create("output.jpg") // Change the filename and extension as needed
+	// Decode the image
+	img, err := imaging.Decode(&imgData)
 	if err != nil {
-		return c.Status(500).SendString("Failed to create output file")
-	}
-	defer file.Close()
-
-	// Encode the image to the file
-	err = jpeg.Encode(file, img, &jpeg.Options{Quality: quality}) // Use png.Encode if saving as PNG
-	if err != nil {
-		return c.Status(500).SendString("Failed to encode image")
+		return c.Status(http.StatusInternalServerError).SendString("Failed to decode image")
 	}
 
+	// Resize the image
+	resizedImg := imaging.Resize(img, int(width), int(height), imaging.Lanczos)
 
+	// Prepare the response
+	c.Set("Content-Type", "image/jpeg")
+	c.Response().Header.Set("Content-Length", fmt.Sprintf("%d", len(imgData.Bytes())))
+
+	// Encode the resized image and send it as a response
 	var buf bytes.Buffer
-
-	// Encode the image to the buffer
-	err = jpeg.Encode(&buf, img, nil) // Use png.Encode(&buf, img) if saving as PNG
-	if err != nil {
-		return c.Status(500).SendString("Failed to encode image")
+	if err := jpeg.Encode(&buf, resizedImg, &jpeg.Options{Quality: quality}); err != nil {
+		return c.Status(http.StatusInternalServerError).SendString("Failed to encode resized image")
 	}
 
-	// Set the appropriate content type based on the image format
-	c.Response().Header.Set("Content-Type", "image/jpeg") // Change to "image/png" if using PNG
-	c.Response().SetBody(buf.Bytes())
+	// Send the resized image
+	_, err = c.Write(buf.Bytes())
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).SendString("Failed to send response")
+	}
 
-	os.Remove("output.jpg")
 	return nil
 }
+
+
+
+
+// func ForwardCDN(c *fiber.Ctx, name string, width uint, height uint, quality int) error {
+// 	// Perform a proxy forward to get the image from CDN
+// 	// temp := strings.Split(name,".")
+// 	// filetype := temp[1]
+// 	url := os.Getenv("CDN")+"get/"+name
+// 	println(url)
+// 	err := proxy.Forward(url+name, &fasthttp.Client{
+// 		NoDefaultUserAgentHeader: true,
+// 		DisablePathNormalizing:   true,
+// 	})(c)
+
+// 	if err != nil {
+// 		return c.Status(505).SendString("Failed to forward request")
+// 	}
+
+	// return c.Response().Body()
+    // src := bytes.NewReader(c.Response().Body())
+
+	// println(src)
+    // var img image.Image
+
+	// switch filetype {
+	// case "jpg", "jpeg":
+	// 	img, err = jpeg.Decode(src)
+	// case "png":
+	// 	img, err = png.Decode(src)
+
+	// default:
+	// 	return c.Status(fiber.StatusUnsupportedMediaType).SendString("Unsupported image type: " + filetype)
+	// }
+
+	// if err != nil {
+	// 	return c.Status(505).SendString("Failed to decodet")
+	// }
+
+	// if (width > 0 && height > 0){
+	// 	img = resize.Resize(width, height , img, resize.Lanczos3)
+	// }
+
+	// var buf bytes.Buffer
+	// switch filetype {
+	// case "jpg", "jpeg":
+	// 	err = jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality})
+	// case "png":
+	// 	err = png.Encode(&buf, img)
+	// }
+
+	// if err != nil {
+	// 	return c.Status(500).SendString("Failed to encode image")
+	// }
+
+	// // Set the appropriate content type and response body
+	// c.Response().Header.Set("Content-Type", "image/"+filetype)
+	// c.Response().SetBody(buf.Bytes())
+
+	// return nil
+// }
+
 
 func main() {
 	app := fiber.New()
@@ -238,8 +300,8 @@ func main() {
 		var width, height int
 		quality := 100
 		if len(arr) != 2 {
-			width = 0
-			height = 0
+			width = 400
+			height = 400
 		} else {
 			dimensions := strings.Split(arr[1], "*")
 			if len(dimensions) < 2 {
