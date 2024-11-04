@@ -8,3 +8,7 @@ This application is a simple image proxy and uploader that interfaces with a CDN
 - **Image Resizing**: Images fetched from the CDN can be resized to specified dimensions.
 - **Multiple Formats Supported**: The application supports JPG, PNG, and GIF formats.
 - **Dynamic Quality Settings**: Users can specify the quality of the output images when resizing.
+
+## Docker
+	docker build -t compressor-go:lastest .
+
